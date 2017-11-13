@@ -1,0 +1,120 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Andrew Golus"
+date: "November 12, 2017"
+output: html_document
+---
+
+## Introduction
+The goal of this project is to use data from accelerometers on the belt, forearm, arm and dumbell of six participants and predict the manner in which they did the exercise.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:/Users/ag827/Desktop/MyLearning/08_PracticalMachineLearning/Assignment")
+library(dplyr)
+library(caret)
+```
+
+## Prepare Data Set
+The attached R code achieves the following:
+- Loads the pml-training and pml-testing data
+- Eliminates 100 columns with NA values only in pml_testing from both data sets
+- Selects 52 predictors (continuous variables) and one response (categorical Variables)
+
+```{r Prepare}
+pml_training <- read.csv("pml-training.csv")
+pml_testing <- read.csv("pml-testing.csv")
+na_perc <-sapply(pml_testing, function(x) 
+sum(length(which(is.na(x))))/length(x))
+table(na_perc)
+features <- cbind(1:160, na_perc)
+features <- subset(features, na_perc == 0)[,1]
+pml_training <- select(pml_training, features)
+names(pml_training)[60] <- "classe"
+pml_testing <- select(pml_testing, features)
+pml_training <- select(pml_training, 8:60)
+pml_testing <- select(pml_testing, 8:60)
+```
+
+## Split Data
+The attached R code achieves the following:
+- Sets seed to guarantee reproducibility of analysis
+- Splits the pml_training data into t_training (70% of observations) and t_testing (30% of observations) data sets on 'Classe'
+- pml_testing will serve as a validation set
+
+```{r Split}
+set.seed(7777)
+inTrain <- createDataPartition(y = pml_training$classe, p = 0.7, list = FALSE)
+t_training <- pml_training[inTrain,]
+t_testing <- pml_training[-inTrain,]
+```
+
+## Preprocessing
+The attached R code achieves the following:
+- Checks for near zero variance variables
+- Checks for highly correlated variables
+- Runs a principal component analysis (pca) on the t_training data set as there are highly correlated variables
+- Applies the pca to the training, testing and validation sets (pml_testing)
+
+```{r Preprocessing}
+nzv <- nearZeroVar(t_training, saveMetrics = TRUE)
+nzv
+M <- abs(cor(t_training[,-53]))
+diag(M) <- 0
+which(M > 0.8, arr.ind = TRUE)
+preProc <- preProcess(t_training[,-53], method = "pca", thres = 0.8)
+t_training <- predict(preProc, t_training)
+t_testing <- predict(preProc, t_testing)
+pml_testing <- predict(preProc, pml_testing)
+```
+
+## Train prediction algorithms
+The attached R code achieves the following:
+- Sets seed to guarantee reproducibility of analysis
+- Sets cross validation with 10 sets to prevent high variance
+- Trains prediction algorithm on the t_training data set using three different models while centering and scaling the data
+- Predicts the 'classe' variable in the t_testing data set using the three algorithms
+- Inspects the accuracy of the preditions (see Appendix)
+
+```{r Prediction}
+set.seed(8888)
+ctrl <- trainControl(method = "cv", number = 10)
+fit_lda <- train(classe ~ ., data = t_training, method = "lda", preProc = c("center", "scale"), trControl = ctrl)
+pred_lda <- predict(fit_lda, t_testing)
+result_lda <- confusionMatrix(pred_lda, t_testing$classe)
+fit_rpart <- train(classe ~ ., data = t_training, method = "rpart", preProc = c("center", "scale"), trControl = ctrl)
+pred_rpart <- predict(fit_rpart, t_testing)
+result_rpart <- confusionMatrix(pred_rpart, t_testing$classe)
+fit_rf <- train(classe ~ ., data = t_training, method = "rf")
+pred_rf <- predict(fit_rf, t_testing)
+result_rf <- confusionMatrix(pred_rf, t_testing$classe)
+```
+
+## Conclusions
+
+Of the three models trained and tested, the random forest has highest accuracy, with an estimated out-of-sample error at 96%.
+
+```{r Conclusion}
+predict(fit_rf, pml_testing)
+```
+
+## Appendix - Confusion Matrix and Statistics of the trained model on test data
+
+### Random Forest - Selected
+
+```{r rf, echo=FALSE}
+print(result_rf)
+```
+
+
+### Linear Discriminant Analysis
+
+```{r lda, echo=FALSE}
+print(result_lda)
+```
+
+### Classification Tree
+
+```{r rpart, echo=FALSE}
+print(result_rpart)
+```
